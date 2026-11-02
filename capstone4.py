@@ -1,3 +1,4 @@
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -5,160 +6,227 @@ import seaborn as sns
 
 sns.set_theme(style="whitegrid")
 
-# ---------- 1. READ THE DATA ----------
+# 1. READ WEATHER DATA
 raw = pd.read_csv("weather-1.csv", encoding="utf-8-sig")
-raw.columns = ["state", "district", "temp", "cond", "hum", "wind", "updated"]  # short names
+
+raw.columns = ["state", "district", "temp", "cond", "hum", "wind", "updated"]
+
 raw["updated"] = pd.to_datetime(raw["updated"])
-raw = raw.sort_values("updated")          # raw = ALL readings (used for history)
+raw = raw.sort_values("updated")
 
-# ---------- 2. KEEP ONLY THE LATEST READING OF EACH DISTRICT ----------
-df = raw.drop_duplicates(["state", "district"], keep="last")   # df = newest row per district
+# Keep latest reading of each district
+df = raw.drop_duplicates(["state", "district"], keep="last").copy()
 
-# ---------- 3. ADD A RISK LEVEL FROM TEMPERATURE ----------
-names  = ["Severe cold", "Cold", "Normal", "Hot", "Heatwave"]
+# 2. ADD TEMPERATURE RISK
+names = ["Severe cold", "Cold", "Normal", "Hot", "Heatwave"]
+
 colors = ["#1D3E91", "#4F98E3", "#2E9A69", "#E8941A", "#D83A3A"]
-edges  = [-100, 0, 10, 35, 40, 100]                  # <0 | 0-10 | 10-35 | 35-40 | 40+
+
+edges = [-100, 0, 10, 35, 40, 100]
+
 df["risk"] = pd.cut(df["temp"], bins=edges, labels=names, right=False)
 
 
-# ---------- THE THREE GRAPHS ----------
+# 3. MODULE 1: SHOW THREE GRAPHS
 def show_graphs():
-    # Graph 1: histogram
-    median = df["temp"].median()
-    plt.figure()
-    sns.histplot(df["temp"], bins=24, kde=True, color="#4F98E3")
-    plt.axvline(median, color="black", linestyle="--", linewidth=1)
-    plt.title(f"Districts at each temperature (median {median:.1f}°C)")
-    plt.xlabel("Temperature (°C)")
-    plt.ylabel("Districts")
 
-    # Graph 2: scatter (humidity vs temperature)
+    # Graph 1: Temperature histogram
+    median = df["temp"].median()
+
     plt.figure()
-    sns.scatterplot(data=df, x="temp", y="hum", hue="risk",
-                    hue_order=names, palette=colors, s=35)
-    plt.title("Humidity against temperature")
+    sns.histplot(df["temp"], bins=24, kde=True)
+    plt.axvline(median, color="red", linestyle="--")
+
+    plt.title("Temperature Distribution")
+    plt.xlabel("Temperature (°C)")
+    plt.ylabel("Number of Districts")
+
+    # Graph 2: Humidity vs Temperature
+    plt.figure()
+    sns.scatterplot(data=df, x="temp", y="hum",
+                    hue="risk", palette=colors)
+
+    plt.title("Humidity vs Temperature")
     plt.xlabel("Temperature (°C)")
     plt.ylabel("Humidity (%)")
-    plt.legend(title="Risk", fontsize=8)
 
-    # Graph 3: bar chart (districts per risk level)
+    # Graph 3: Districts in each risk category
     counts = df["risk"].value_counts().reindex(names, fill_value=0)
+
     plt.figure()
-    sns.barplot(x=counts.index, y=counts.values, hue=counts.index,
+    sns.barplot(x=names, y=counts.values, hue=names,
                 palette=colors, legend=False)
-    for i, v in enumerate(counts.values):
-        plt.text(i, v, str(v), ha="center", va="bottom")
-    plt.title("Districts by risk level")
-    plt.xlabel("")
-    plt.ylabel("Districts")
+
+    plt.title("Districts by Risk Level")
+    plt.xlabel("Risk Level")
+    plt.ylabel("Number of Districts")
 
     plt.show()
 
 
-# ---------- FIND A DISTRICT BY NAME ----------
+# 4. FIND DISTRICT
 def find_district():
-    name = input("District name> ").strip().lower()
-    found = df[df["district"].str.lower().str.contains(name)]   # partial match works too
+
+    name = input("Enter district name: ").strip().lower()
+
+    found = df[df["district"].str.lower().str.contains(name, na=False)]
 
     if name == "" or found.empty:
         print("District not found.")
         return None
-    if len(found) == 1:
-        return found.iloc[0]
 
-    # same name in more than one state -> let the user choose
-    print("Multiple matches:")
-    for i, (_, r) in enumerate(found.iterrows()):
-        print(f"  {i}) {r['district']}, {r['state']}")
-    pick = input("Choose number> ").strip()
-    if pick.isdigit() and int(pick) < len(found):
-        return found.iloc[int(pick)]
-    print("Invalid choice.")
-    return None
+    if len(found) > 1:
+        print("Multiple districts found:")
+
+        for i, row in found.iterrows():
+            print(i, row["district"], "-", row["state"])
+
+        choice = input("Enter index number: ")
+
+        if choice.isdigit() and int(choice) in found.index:
+            return found.loc[int(choice)]
+
+        print("Invalid choice.")
+        return None
+
+    return found.iloc[0]
 
 
+# 5. GET DISTRICT HISTORY
 def history_of(row):
-    # all readings of this one district (oldest -> newest)
-    return raw[(raw["state"] == row["state"]) & (raw["district"] == row["district"])]
+
+    history = raw[
+        (raw["state"] == row["state"]) &
+        (raw["district"] == row["district"])
+    ]
+
+    return history
 
 
-# ---------- FEATURE 1: DETAILS OF ONE DISTRICT ----------
+# 6. MODULE 2: DISTRICT DETAILS
 def district_details():
+
     row = find_district()
+
     if row is None:
         return
-    print(f"\n{row['district']}, {row['state']}")
-    print("-" * 30)
-    print(f"Temperature : {row['temp']} °C")
-    print(f"Condition   : {row['cond']}")
-    print(f"Humidity    : {row['hum']} %")
-    print(f"Wind        : {row['wind']} km/h")
-    print(f"Risk level  : {row['risk']}")
 
-    # how does it rank among all districts? (1 = hottest)
-    rank = int((df["temp"] > row["temp"]).sum()) + 1
-    print(f"Hotness rank: {rank} of {len(df)} districts")
+    print("\nDistrict:", row["district"])
+    print("State:", row["state"])
+    print("Temperature:", row["temp"], "°C")
+    print("Condition:", row["cond"])
+    print("Humidity:", row["hum"], "%")
+    print("Wind:", row["wind"], "km/h")
+    print("Risk:", row["risk"])
 
+    # Find temperature rank
+    rank = (df["temp"] > row["temp"]).sum() + 1
+
+    print("Hotness Rank:", rank, "out of", len(df))
+
+    # Show past readings
     hist = history_of(row)
-    print("\nPast readings:")
-    print(hist[["updated", "temp", "hum", "wind"]].to_string(index=False))
 
+    print("\nPast Weather Readings:")
+    print(hist[["updated", "temp", "hum", "wind"]])
+
+    # Temperature history graph
     plt.figure()
-    plt.plot(hist["updated"], hist["temp"], marker="o", color="#D83A3A")
-    plt.title(f"Temperature trend: {row['district']}")
+    plt.plot(hist["updated"], hist["temp"], marker="o")
+
+    plt.title("Temperature History")
     plt.xlabel("Date")
     plt.ylabel("Temperature (°C)")
+
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
 
 
-# ---------- FEATURE 2: COMPARE TWO DISTRICTS ----------
+# 7. MODULE 3: COMPARE TWO DISTRICTS
 def compare_districts():
-    print("First district:")
+
+    print("\nEnter First District:")
     a = find_district()
+
     if a is None:
         return
-    print("Second district:")
+
+    print("\nEnter Second District:")
     b = find_district()
+
     if b is None:
         return
 
-    name_a = f"{a['district']} ({a['state']})"
-    name_b = f"{b['district']} ({b['state']})"
+    # Compare weather details
+    comparison = pd.DataFrame({
 
-    table = pd.DataFrame({
-        name_a: [a["temp"], a["hum"], a["wind"], a["cond"], a["risk"]],
-        name_b: [b["temp"], b["hum"], b["wind"], b["cond"], b["risk"]],
-    }, index=["Temperature (°C)", "Humidity (%)", "Wind (km/h)", "Condition", "Risk"])
-    print("\n", table)
+        a["district"]: [a["temp"], a["hum"], a["wind"], a["cond"], a["risk"]],
 
+        b["district"]: [b["temp"], b["hum"], b["wind"], b["cond"], b["risk"]]
+
+    }, index=["Temperature", "Humidity", "Wind", "Condition", "Risk"])
+
+    print("\nWeather Comparison:")
+    print(comparison)
+
+    # Calculate temperature difference
     diff = a["temp"] - b["temp"]
-    print(f"\n{a['district']} is {abs(diff):.1f}°C {'warmer' if diff > 0 else 'colder'} than {b['district']}.")
 
-    # both temperature trends on one graph
-    ha, hb = history_of(a), history_of(b)
+    if diff > 0:
+        print(a["district"], "is", round(diff, 1), "°C warmer than", b["district"])
+
+    elif diff < 0:
+        print(b["district"], "is", round(abs(diff), 1), "°C warmer than", a["district"])
+
+    else:
+        print("Both districts have the same temperature.")
+
+    # Compare historical temperatures
+    h1 = history_of(a)
+    h2 = history_of(b)
+
     plt.figure()
-    plt.plot(ha["updated"], ha["temp"], marker="o", label=name_a)
-    plt.plot(hb["updated"], hb["temp"], marker="o", label=name_b)
-    plt.title("Temperature comparison")
+
+    plt.plot(h1["updated"], h1["temp"], marker="o",
+             label=a["district"])
+
+    plt.plot(h2["updated"], h2["temp"], marker="o",
+             label=b["district"])
+
+    plt.title("Temperature Comparison")
     plt.xlabel("Date")
     plt.ylabel("Temperature (°C)")
-    plt.xticks(rotation=45)
+
     plt.legend()
+    plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
 
 
-# ---------- MENU ----------
+# 8. MAIN MENU
 while True:
-    print("\n1) Show 3 graphs\n2) District details\n3) Compare two districts\nq) Quit")
-    choice = input("> ").strip().lower()
+
+    print("\n----- WEATHER ANALYSIS SYSTEM -----")
+    print("1. Show Three Graphs")
+    print("2. District Details")
+    print("3. Compare Two Districts")
+    print("q. Quit")
+
+    choice = input("Enter your choice: ").lower().strip()
+
     if choice == "1":
         show_graphs()
+
     elif choice == "2":
         district_details()
+
     elif choice == "3":
         compare_districts()
+
     elif choice == "q":
+        print("Thank you!")
         break
+
+    else:
+        print("Invalid choice. Try again.")
